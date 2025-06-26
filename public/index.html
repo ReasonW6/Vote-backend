@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>网上投票系统</title>
+    <!-- 引入Tailwind CSS框架 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入Font Awesome图标库 -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; }
+        .page { display: none; animation: fadeIn 0.5s ease-in-out; }
+        .page.active { display: block; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .chart-bar { transition: width 0.5s ease-in-out; }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800">
+
+    <div id="app-container" class="container mx-auto p-4 md:p-8 max-w-4xl">
+        <header id="app-header" class="hidden mb-8 p-4 bg-white rounded-xl shadow-lg flex justify-between items-center"></header>
+        <main id="page-container" class="bg-white p-6 md:p-8 rounded-xl shadow-lg min-h-[600px]">
+            <div id="login-page" class="page active"></div>
+            <div id="register-page" class="page"></div>
+            <div id="hall-page" class="page"></div>
+            <div id="detail-page" class="page"></div>
+            <div id="create-page" class="page"></div>
+            <div id="profile-page" class="page"></div>
+        </main>
+    </div>
+    <div id="toast-container" class="fixed top-5 right-5 z-50"></div>
+    <div id="confirm-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex justify-center items-center">
+        <div class="bg-white p-6 rounded-lg shadow-xl max-w-sm w-full">
+            <h3 id="modal-title" class="text-lg font-bold mb-4">请确认</h3>
+            <p id="modal-message" class="text-gray-700 mb-6">您确定要执行此操作吗？</p>
+            <div class="flex justify-end space-x-4">
+                <button id="modal-cancel-btn" class="px-4 py-2 bg-gray-300 rounded-lg hover:bg-gray-400">取消</button>
+                <button id="modal-confirm-btn" class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700">确认</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    // --- 全局状态和API基地址 ---
+    const state = { currentUser: null, currentVotes: [], userVotedPolls: {} };
+    const API_BASE_URL = 'http://localhost:3000';
+
+    // --- 页面导航和渲染核心 ---
+    function showPage(pageId) {
+        document.querySelectorAll('.page').forEach(page => page.classList.remove('active'));
+        const pageElement = document.getElementById(`${pageId}-page`);
+        if (pageElement) {
+            pageElement.classList.add('active');
+            switch(pageId) {
+                case 'login': renderLoginPage(); break;
+                case 'register': renderRegisterPage(); break;
+                case 'hall': renderHallPage(); break;
+                case 'create': renderCreatePage(); break;
+                case 'profile': renderProfilePage(); break;
+            }
+        }
+    }
+
+    function renderHeader() {
+        const header = document.getElementById('app-header');
+        if (!state.currentUser) {
+            header.classList.add('hidden');
+            return;
+        }
+        header.innerHTML = `
+            <div><button onclick="showPage('hall')" class="text-2xl font-bold text-indigo-600">🚀 网上投票系统</button></div>
+            <div class="flex items-center space-x-4">
+                <button onclick="showPage('profile')" class="font-semibold text-gray-600 hover:text-indigo-600">欢迎, <span class="text-indigo-500">${state.currentUser.Username}</span>!</button>
+                <button onclick="handleLogout()" class="px-3 py-1 text-sm bg-red-500 text-white rounded-md hover:bg-red-600">退出登录</button>
+            </div>`;
+        header.classList.remove('hidden');
+    }
+
+    // --- 各页面渲染函数 ---
+    /**
+     * @description: 渲染登录页面。此函数已被修改，以防止自动填充用户名和密码。
+     */
+    function renderLoginPage() {
+        document.getElementById('login-page').innerHTML = `
+            <h2 class="text-3xl font-bold text-center mb-6">系统登录</h2>
+            <form id="login-form" class="space-y-6">
+                <div><label class="block text-sm font-medium">用户名</label><input type="text" id="login-username" class="mt-1 block w-full px-4 py-2 bg-gray-50 border rounded-lg" required></div>
+                <div><label class="block text-sm font-medium">密码</label><input type="password" id="login-password" class="mt-1 block w-full px-4 py-2 bg-gray-50 border rounded-lg" required></div>
+                <div class="flex items-center"><input id="remember-me" type="checkbox" class="h-4 w-4 text-indigo-600 border-gray-300 rounded"><label for="remember-me" class="ml-2 block text-sm text-gray-900">记住我</label></div>
+                <button type="submit" class="w-full py-3 px-4 font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700">登 录</button>
+            </form>
+            <p class="text-center mt-4 text-sm text-gray-600">没有账户？ <button onclick="showPage('register')" class="font-medium text-indigo-600 hover:text-indigo-500">立即注册</button></p>`;
+        document.getElementById('login-form').addEventListener('submit', handleLogin);
+    }
+
+    function renderRegisterPage() {
+        document.getElementById('register-page').innerHTML = `
+            <h2 class="text-3xl font-bold text-center mb-6">用户注册</h2>
+            <form id="register-form" class="space-y-6">
+                <div><label class="block text-sm font-medium">用户名</label><input type="text" id="reg-username" class="mt-1 w-full px-4 py-2 bg-gray-50 border rounded-lg" required></div>
+                <div><label class="block text-sm font-medium">邮箱</label><input type="email" id="reg-email" class="mt-1 w-full px-4 py-2 bg-gray-50 border rounded-lg" required></div>
+                <div><label class="block text-sm font-medium">密码</label><input type="password" id="reg-password" class="mt-1 w-full px-4 py-2 bg-gray-50 border rounded-lg" required></div>
+                <div><label class="block text-sm font-medium">注册为</label><select id="reg-role" class="mt-1 w-full px-4 py-2 bg-gray-50 border rounded-lg"><option value="user">普通用户</option><option value="admin">管理员</option></select></div>
+                <button type="submit" class="w-full py-3 px-4 bg-green-600 text-white rounded-lg hover:bg-green-700">注 册</button>
+            </form>
+            <p class="text-center mt-4 text-sm">已有账户？ <button onclick="showPage('login')" class="font-medium text-indigo-600 hover:text-indigo-500">返回登录</button></p>`;
+        document.getElementById('register-form').addEventListener('submit', handleRegister);
+    }
+    
+    async function renderHallPage() {
+        const container = document.getElementById('hall-page');
+        container.innerHTML = `<p class="text-center">正在加载投票...</p>`;
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/votes`);
+            if (!response.ok) throw new Error('无法加载投票列表。');
+            state.currentVotes = await response.json();
+            container.innerHTML = `
+                <div class="flex justify-between items-center mb-6">
+                    <h2 class="text-3xl font-bold">投票大厅</h2>
+                    ${state.currentUser?.UserRole === 'admin' ? `<button onclick="showPage('create')" class="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 shadow-md"><i class="fas fa-plus mr-2"></i>创建新投票</button>` : ''}
+                </div>
+                <div class="space-y-4">${state.currentVotes.map(getVoteCardHtml).join('') || '<p>当前没有投票活动。</p>'}</div>`;
+        } catch (error) {
+            container.innerHTML = `<p class="text-red-500 text-center">${error.message}</p>`;
+        }
+    }
+
+    async function renderDetailPage(voteId) {
+        const container = document.getElementById('detail-page');
+        container.innerHTML = `<p class="text-center">正在加载投票详情...</p>`;
+        try {
+            const vote = state.currentVotes.find(v => v.VoteID === voteId);
+            if (!vote) throw new Error('找不到该投票信息');
+
+            const optionsResponse = await fetch(`${API_BASE_URL}/api/votes/${voteId}/options`);
+            if (!optionsResponse.ok) throw new Error('无法加载投票选项。');
+            const options = await optionsResponse.json();
+
+            // 修复后的投票记录检查逻辑
+            const userVotedRecordsForThisPoll = state.userVotedPolls[vote.VoteID];
+            const hasVoted = userVotedRecordsForThisPoll && userVotedRecordsForThisPoll.length > 0;
+            const isOngoing = new Date() >= new Date(vote.StartTime) && new Date() <= new Date(vote.EndTime);
+            
+            let contentHtml;
+            if (hasVoted || !isOngoing) {
+                const totalVotes = options.reduce((sum, opt) => sum + opt.VoteCount, 0);
+                contentHtml = `
+                    <h3 class="text-xl font-semibold mb-4">投票结果</h3>
+                    <div class="space-y-4">
+                        ${options.sort((a,b) => b.VoteCount - a.VoteCount).map(opt => `
+                            <div>
+                                <div class="flex justify-between items-center mb-1">
+                                    <span class="font-medium flex items-center">${opt.OptionText}${userVotedRecordsForThisPoll?.includes(opt.OptionID) ? '<i class="fas fa-check text-green-500 ml-2" title="您投了此项"></i>' : ''}</span>
+                                    <span class="text-sm text-gray-600">${opt.VoteCount} 票 (${(totalVotes > 0 ? (opt.VoteCount / totalVotes * 100) : 0).toFixed(1)}%)</span>
+                                </div>
+                                <div class="w-full bg-gray-200 rounded-full h-4"><div class="bg-indigo-500 h-4 rounded-full chart-bar" style="width: ${(totalVotes > 0 ? (opt.VoteCount / totalVotes * 100) : 0).toFixed(1)}%;"></div></div>
+                            </div>`).join('')}
+                    </div>`;
+            } else {
+                contentHtml = `
+                    <form id="vote-form" data-vote-id="${vote.VoteID}">
+                        <h3 class="text-xl font-semibold mb-4">请选择您的选项</h3>
+                        <div class="space-y-3">
+                            ${options.map(opt => `<label class="flex items-center p-4 border rounded-lg hover:bg-gray-50 cursor-pointer"><input type="${vote.VoteType === 'single' ? 'radio' : 'checkbox'}" name="option" value="${opt.OptionID}" class="h-5 w-5 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"/><span class="ml-4 text-lg">${opt.OptionText}</span></label>`).join('')}
+                        </div>
+                        <button type="submit" class="w-full mt-6 py-3 px-4 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">确认投票</button>
+                    </form>`;
+            }
+            
+            container.innerHTML = `
+                <button onclick="showPage('hall')" class="mb-6 px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300"><i class="fas fa-arrow-left mr-2"></i>返回大厅</button>
+                <h2 class="text-3xl font-bold mb-2">${vote.Title}</h2>
+                <p class="text-gray-600 mb-6">${vote.Description}</p>
+                <div class="border-t pt-6">${contentHtml}</div>`;
+            
+            if (document.getElementById('vote-form')) document.getElementById('vote-form').addEventListener('submit', handleVoteSubmit);
+        } catch(error) {
+             container.innerHTML = `<p class="text-red-500 text-center">${error.message}</p>`;
+        }
+    }
+
+    function renderCreatePage() {
+        const now = new Date();
+        now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+        const sevenDaysLater = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+        document.getElementById('create-page').innerHTML = `
+            <button onclick="showPage('hall')" class="mb-6 px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300"><i class="fas fa-arrow-left mr-2"></i>返回大厅</button>
+            <h2 class="text-3xl font-bold mb-6">创建新投票</h2>
+            <form id="create-vote-form" class="space-y-6">
+                <div><label>标题</label><input type="text" id="create-title" class="mt-1 w-full p-2 border rounded-lg" required /></div>
+                <div><label>描述</label><textarea id="create-desc" rows="3" class="mt-1 w-full p-2 border rounded-lg"></textarea></div>
+                <div class="grid md:grid-cols-2 gap-6">
+                    <div><label>开始时间</label><input type="datetime-local" id="create-start" value="${now.toISOString().slice(0, 16)}" class="mt-1 w-full p-2 border rounded-lg" required/></div>
+                    <div><label>结束时间</label><input type="datetime-local" id="create-end" value="${sevenDaysLater.toISOString().slice(0, 16)}" class="mt-1 w-full p-2 border rounded-lg" required /></div>
+                </div>
+                <div class="grid md:grid-cols-2 gap-6">
+                    <div><label>投票类型</label><select id="create-type" class="mt-1 w-full p-2 border rounded-lg"><option value="single">单选</option><option value="multiple">多选</option></select></div>
+                    <div><label>是否匿名</label><select id="create-anon" class="mt-1 w-full p-2 border rounded-lg"><option value="false">显示发布人</option><option value="true">隐藏发布人</option></select></div>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium mb-2">选项</label>
+                    <div id="options-container" class="space-y-2">
+                        <div class="flex items-center space-x-2"><input type="text" name="option" placeholder="选项 1" class="w-full p-2 border rounded" required /><button type="button" class="remove-option-btn invisible px-3 py-2 bg-red-500 text-white rounded-lg"><i class="fas fa-trash-alt"></i></button></div>
+                        <div class="flex items-center space-x-2"><input type="text" name="option" placeholder="选项 2" class="w-full p-2 border rounded" required /><button type="button" class="remove-option-btn invisible px-3 py-2 bg-red-500 text-white rounded-lg"><i class="fas fa-trash-alt"></i></button></div>
+                    </div>
+                    <button type="button" id="add-option-btn" class="mt-2 text-sm text-indigo-600 hover:text-indigo-800">+ 添加选项</button>
+                </div>
+                <button type="submit" class="w-full py-3 px-4 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">发布投票</button>
+            </form>`;
+        document.getElementById('create-vote-form').addEventListener('submit', handleCreateVote);
+        document.getElementById('add-option-btn').addEventListener('click', addOptionInput);
+    }
+
+    function renderProfilePage() {
+         document.getElementById('profile-page').innerHTML = `
+            <h2 class="text-3xl font-bold mb-6">个人资料</h2>
+            <div class="space-y-4 bg-gray-50 p-6 rounded-lg">
+                <p><strong>用户名:</strong> ${state.currentUser.Username}</p>
+                <p><strong>角色:</strong> ${state.currentUser.UserRole}</p>
+                <p><strong>用户ID:</strong> ${state.currentUser.UserID}</p>
+            </div>
+             <div class="mt-8 border-t pt-6"><button onclick="showPage('hall')" class="px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300">返回大厅</button></div>`;
+    }
+
+    // --- 事件处理/API调用函数 ---
+    async function handleLogin(e) {
+        e.preventDefault();
+        const username = e.target.elements['login-username'].value;
+        const password = e.target.elements['login-password'].value;
+        const rememberMe = e.target.elements['remember-me'].checked;
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/login`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password })
+            });
+            if (!response.ok) throw new Error((await response.json()).message);
+            state.currentUser = await response.json();
+            
+            // Remember Me Feature
+            if (rememberMe) {
+                localStorage.setItem('votingAppCredentials', JSON.stringify({ username, password }));
+            } else {
+                localStorage.removeItem('votingAppCredentials');
+            }
+
+            // 修复：正确处理用户投票记录
+            try {
+                const votedRecordsResponse = await fetch(`${API_BASE_URL}/api/users/${state.currentUser.UserID}/voted-records`);
+                if (votedRecordsResponse.ok) {
+                    const votedData = await votedRecordsResponse.json();
+                    // 直接使用后端返回的数据格式：{ voteId1: [optionId1, optionId2], ... }
+                    state.userVotedPolls = votedData;
+                } else {
+                    // 如果获取投票记录失败，设置为空对象
+                    state.userVotedPolls = {};
+                }
+            } catch (error) {
+                console.warn('获取用户投票记录失败:', error);
+                state.userVotedPolls = {};
+            }
+
+            renderHeader();
+            showPage('hall');
+            showToast(`登录成功，欢迎 ${state.currentUser.Username}!`, 'success');
+        } catch (error) { 
+            showToast(error.message || '登录请求失败', 'error'); 
+        }
+    }
+
+    async function handleRegister(e) {
+        e.preventDefault();
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/register`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    username: e.target.elements['reg-username'].value.trim(),
+                    email: e.target.elements['reg-email'].value,
+                    password: e.target.elements['reg-password'].value,
+                    role: e.target.elements['reg-role'].value
+                })
+            });
+            if (!response.ok) throw new Error((await response.json()).message);
+            showToast('注册成功！请登录。', 'success');
+            showPage('login');
+        } catch (error) { showToast(error.message || '注册失败', 'error'); }
+    }
+
+    function handleLogout() {
+        state.currentUser = null;
+        state.userVotedPolls = {}; // Clear voting state
+        renderHeader();
+        showPage('login');
+    }
+
+    async function handleVoteSubmit(e) {
+        e.preventDefault();
+        const voteId = parseInt(e.target.dataset.voteId);
+        const selectedOptionIds = Array.from(e.target.querySelectorAll('input[name="option"]:checked')).map(input => parseInt(input.value));
+        if (selectedOptionIds.length === 0) { showToast('请至少选择一个选项!', 'error'); return; }
+        
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/vote`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userId: state.currentUser.UserID, optionIds: selectedOptionIds })
+            });
+            if (!response.ok) throw new Error((await response.json()).message);
+            
+            // 修复：正确更新投票状态
+            state.userVotedPolls[voteId] = selectedOptionIds;
+            
+            showToast((await response.json()).message, 'success');
+            renderDetailPage(voteId);
+        } catch (error) { showToast(`投票失败: ${error.message}`, 'error'); }
+    }
+    
+    async function handleCreateVote(e) {
+        e.preventDefault();
+        const Options = Array.from(e.target.querySelectorAll('input[name="option"]')).map(i => i.value.trim()).filter(Boolean);
+        if (Options.length < 2) { showToast('请至少提供两个有效的选项！', 'error'); return; }
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/votes`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    UserID: state.currentUser.UserID,
+                    Title: e.target.elements['create-title'].value, Description: e.target.elements['create-desc'].value,
+                    StartTime: e.target.elements['create-start'].value, EndTime: e.target.elements['create-end'].value,
+                    VoteType: e.target.elements['create-type'].value, IsAnonymous: e.target.elements['create-anon'].value === 'true',
+                    Options
+                })
+            });
+             if (!response.ok) throw new Error((await response.json()).message);
+            showToast('投票创建成功!', 'success');
+            showPage('hall');
+        } catch (error) { showToast(`创建失败: ${error.message}`, 'error'); }
+    }
+    
+    function handleDeleteVote(voteId, event) {
+        event.stopPropagation();
+        showConfirm('确定要删除这个投票吗？此操作无法撤销。', async () => {
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/votes/${voteId}`, { method: 'DELETE' });
+                if (!response.ok) throw new Error((await response.json()).message);
+                showToast('投票已删除。', 'success');
+                renderHallPage();
+            } catch(e) { showToast(`删除失败: ${e.message}`, 'error'); }
+        });
+    }
+
+    // --- 辅助函数 ---
+    function getVoteCardHtml(vote) {
+        const isOngoing = new Date() >= new Date(vote.StartTime) && new Date() <= new Date(vote.EndTime);
+        const status = new Date() < new Date(vote.StartTime) ? '未开始' : (isOngoing ? '进行中' : '已结束');
+        const statusColor = status === '未开始' ? 'bg-yellow-400' : (status === '进行中' ? 'bg-green-500' : 'bg-red-400');
+        const actionButton = status === '未开始' ? `<button class="w-full mt-4 py-2 px-4 bg-gray-400 text-white rounded-lg cursor-not-allowed">尚未开始</button>` :
+            `<button onclick="renderDetailPage(${vote.VoteID}); showPage('detail');" class="w-full mt-4 py-2 px-4 ${isOngoing ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-gray-500 hover:bg-gray-600'} text-white rounded-lg">${isOngoing ? '参与投票' : '查看结果'}</button>`;
+        return `
+            <div class="border rounded-xl p-6 hover:shadow-xl bg-white transform hover:-translate-y-1">
+                <div class="flex justify-between items-start"><h3 class="text-xl font-bold mb-2">${vote.Title}</h3><span class="text-xs font-semibold px-2 py-1 rounded-full text-white ${statusColor}">${status}</span></div>
+                <p class="text-gray-600 mb-4">${vote.Description}</p>
+                <div class="text-sm text-gray-500 space-y-1">
+                     <p><i class="fas fa-user-edit mr-2 text-gray-400"></i>发布人: <span class="font-medium">${vote.IsAnonymous ? '匿名用户' : (vote.PublisherName || '未知用户')}</span></p>
+                     <p><i class="fas fa-play mr-2 text-green-500"></i>开始: ${new Date(vote.StartTime).toLocaleString()}</p>
+                     <p><i class="fas fa-stop mr-2 text-red-500"></i>结束: ${new Date(vote.EndTime).toLocaleString()}</p>
+                </div>
+                <div class="flex items-center space-x-2">${actionButton}${state.currentUser?.UserRole === 'admin' ? `<button onclick="handleDeleteVote(${vote.VoteID}, event)" class="mt-4 shrink-0 w-10 h-10 bg-red-500 text-white rounded-lg hover:bg-red-600 flex items-center justify-center" title="删除投票"><i class="fas fa-trash-alt"></i></button>` : ''}</div>
+            </div>`;
+    }
+
+    function addOptionInput() {
+        const container = document.getElementById('options-container');
+        const optionCount = container.children.length;
+        const newOptionDiv = document.createElement('div');
+        newOptionDiv.className = 'flex items-center space-x-2';
+        newOptionDiv.innerHTML = `<input type="text" name="option" placeholder="选项 ${optionCount + 1}" class="w-full p-2 border rounded" required /><button type="button" class="remove-option-btn px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600"><i class="fas fa-trash-alt"></i></button>`;
+        container.appendChild(newOptionDiv);
+        newOptionDiv.querySelector('.remove-option-btn').onclick = () => container.children.length > 2 ? newOptionDiv.remove() : showToast('至少需要两个选项。', 'error');
+        container.querySelectorAll('.remove-option-btn').forEach(btn => btn.classList.remove('invisible'));
+    }
+
+    function showToast(message, type = 'success') {
+        const toast = document.createElement('div');
+        toast.textContent = message;
+        toast.className = `text-white px-6 py-3 rounded-lg shadow-lg mb-2 transition-all opacity-0 transform -translate-y-5 ${type === 'success' ? 'bg-green-500' : 'bg-red-500'}`;
+        document.getElementById('toast-container').appendChild(toast);
+        setTimeout(() => { toast.style.opacity = '1'; toast.style.transform = 'translateY(0)'; }, 100);
+        setTimeout(() => { toast.style.opacity = '0'; toast.addEventListener('transitionend', () => toast.remove()); }, 3000);
+    }
+    
+    function showConfirm(message, onConfirm) {
+        const modal = document.getElementById('confirm-modal');
+        document.getElementById('modal-message').textContent = message;
+        document.getElementById('modal-confirm-btn').onclick = () => { onConfirm(); modal.classList.add('hidden'); };
+        document.getElementById('modal-cancel-btn').onclick = () => modal.classList.add('hidden');
+        modal.classList.remove('hidden');
+    }
+
+    // --- 初始化应用 ---
+    window.onload = () => showPage('login');
+    </script>
+</body>
+</html>
