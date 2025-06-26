@@ -16,10 +16,10 @@ app.use(express.static(path.join(__dirname, 'public')));
 // --- 数据库连接配置 ---
 // 这是根据您之前提供的截图信息配置的
 const dbConfig = {
-    user: 'sa',
-    password: '123456',
-    server: 'WANG-XUAN\\WANG', // 注意: 在JS中一个反斜杠是转义符, 所以需要两个
-    database: '网上投票系统',
+   user: 'your_sql_username',               // 例如: 'sa'
+    password: 'your_sql_password',          // 您的密码
+    server: 'localhost',                    // 您的服务器地址，例如 'SQLEXPRESS'
+    database: 'your_database_name',         // 您在哪个数据库中运行了.sql脚本
     options: {
         encrypt: false,
         trustServerCertificate: true
@@ -27,10 +27,6 @@ const dbConfig = {
 };
 
 // --- API 端点 (Endpoints) ---
-
-// (之前的注册、登录、获取投票等接口保持不变...)
-// ...
-
 // 1. [POST] /api/register - 用户注册
 app.post('/api/register', async (req, res) => {
     const { username, password, email, role } = req.body;
